@@ -1,4 +1,4 @@
-import yt_dlp
+import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from youtube_search import YoutubeSearch
@@ -6,12 +6,21 @@ from youtube_search import YoutubeSearch
 app = Flask(__name__)
 CORS(app)
 
+# Güvenilir Invidious Sunucuları
+INVIDIOUS_INSTANCES = [
+    "https://inv.tux.pizza",
+    "https://invidious.nerdvpn.de",
+    "https://yewtu.be",
+    "https://invidious.no-logs.com"
+]
+
 @app.route('/search', methods=['GET'])
 def search():
     query = request.args.get('q')
     if not query:
         return jsonify([])
     try:
+        # Arama kısmında mevcut kütüphaneyi kullanmaya devam edebiliriz
         results = YoutubeSearch(query, max_results=10).to_dict()
         return jsonify(results)
     except Exception as e:
@@ -23,46 +32,25 @@ def play():
     if not video_id:
         return jsonify({"error": "ID eksik"}), 400
 
-    # YOUTUBE ENGELİNİ AŞAN GÜNCEL AYARLAR
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'quiet': True,
-        'no_warnings': True,
-        'nocheckcertificate': True,
-        # YouTube'u kandırmak için Android istemcisi kullanıyoruz
-        'user_agent': 'Mozilla/5.0 (Android 12; Mobile; rv:94.0) Gecko/94.0 Firefox/94.0',
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android'],
-                'skip': ['dash', 'hls']
-            }
-        },
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-    }
-
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Video URL'sini doğrudan işliyoruz
-            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+    for instance in INVIDIOUS_INSTANCES:
+        try:
+            # Invidious API üzerinden video detaylarını sorgula
+            api_url = f"{instance}/api/v1/videos/{video_id}"
+            response = requests.get(api_url, timeout=5)
             
-            # Bazı durumlarda 'url' yerine 'formats' içinden en iyisini seçmek gerekebilir
-            url = info.get('url')
-            if not url and 'formats' in info:
-                url = info['formats'][0]['url']
+            if response.status_code == 200:
+                data = response.json()
+                # Sadece ses (audio) olan formatları filtrele
+                audio_formats = [f for f in data.get('adaptiveFormats', []) if 'audio/' in f.get('type', '')]
                 
-            if url:
-                return jsonify({"url": url})
-            else:
-                return jsonify({"error": "Video linki bulunamadı"}), 404
-                
-    except Exception as e:
-        # Hatayı Render loglarında görebilmek için yazdırıyoruz
-        print(f"Hata detayı: {str(e)}") 
-        return jsonify({"error": "YouTube isteği reddetti"}), 500
+                if audio_formats:
+                    # En yüksek bit değerine sahip olanı (genellikle listenin sonu) seç
+                    return jsonify({"url": audio_formats[-1]['url']})
+        except Exception as e:
+            print(f"{instance} sunucusu hata verdi, diğeri deneniyor...")
+            continue
+
+    return jsonify({"error": "Müzik linki hiçbir sunucudan alınamadı."}), 404
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
