@@ -5,44 +5,41 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# SoundCloud arama ve stream için public API kullanıyoruz
-def get_soundcloud_stream(track_url):
-    # Bu servis SoundCloud linkini doğrudan MP3'e çevirir
-    api_url = f"https://api.soundclouddownloader.org/track?url={track_url}"
-    try:
-        return track_url # Bazı durumlarda direkt stream linki gerekir, 
-        # ancak basitlik için SoundCloud'un kendi stream yapısını simüle edeceğiz.
-    except: return None
+# SoundCloud Public Client ID (Bu ID değişebilir, en güncelidir)
+CLIENT_ID = "iZVscCksmSeUvS7Z6Y0mJJU8XN3mY28I"
 
 @app.route('/search', methods=['GET'])
 def search():
     query = request.args.get('q')
     if not query: return jsonify([])
     try:
-        # SoundCloud Public Search API
-        search_url = f"https://api-v2.soundcloud.com/search?q={query}&client_id=iZVscCksmSeUvS7Z6Y0mJJU8XN3mY28I&limit=10"
-        resp = requests.get(search_url)
-        data = resp.json().get('collection', [])
+        # Doğrudan SoundCloud üzerinden arama
+        search_url = f"https://api-v2.soundcloud.com/search?q={query}&client_id={CLIENT_ID}&limit=10"
+        response = requests.get(search_url, timeout=10)
+        data = response.json().get('collection', [])
         
         results = []
         for item in data:
             if item.get('kind') == 'track':
                 results.append({
                     "id": str(item['id']),
-                    "title": item['title'],
-                    "thumbnail": item['artwork_url'] or item['user']['avatar_url'],
-                    "duration": f"{item['duration'] // 60000}:{(item['duration'] // 1000) % 60:02d}",
-                    "url": item['permalink_url'] # Tam sürüm linki
+                    "title": item.get('title', 'Bilinmeyen Şarkı'),
+                    "thumbnail": item.get('artwork_url') or item.get('user', {}).get('avatar_url'),
+                    "duration": f"{item.get('duration', 0) // 60000}:{(item.get('duration', 0) // 1000) % 60:02d}"
                 })
         return jsonify(results)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"Arama Hatası: {str(e)}")
+        return jsonify([])
 
 @app.route('/play', methods=['GET'])
 def play():
     track_id = request.args.get('id')
-    # SoundCloud stream linki oluşturma (ClientID bazen değişebilir)
-    stream_url = f"https://api.soundcloud.com/tracks/{track_id}/stream?client_id=iZVscCksmSeUvS7Z6Y0mJJU8XN3mY28I"
+    if not track_id: return jsonify({"error": "ID yok"}), 400
+    
+    # SoundCloud stream URL'ini oluştur
+    # Not: Bu URL doğrudan MP3 vermez, HLS stream verir. Mobil oyuncular bunu çalar.
+    stream_url = f"https://api.soundcloud.com/tracks/{track_id}/stream?client_id={CLIENT_ID}"
     return jsonify({"url": stream_url})
 
 if __name__ == '__main__':
