@@ -1,3 +1,28 @@
+import yt_dlp
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from youtube_search import YoutubeSearch
+
+app = Flask(__name__)
+CORS(app)
+
+@app.route('/search', methods=['GET'])
+def search():
+    query = request.args.get('q')
+    if not query:
+        return jsonify([])
+    
+    results = YoutubeSearch(query, max_results=8).to_dict()
+    formatted_results = []
+    for res in results:
+        formatted_results.append({
+            "id": res['id'],
+            "title": res['title'],
+            "thumbnail": res['thumbnails'][0],
+            "duration": res['duration']
+        })
+    return jsonify(formatted_results)
+
 @app.route('/play', methods=['GET'])
 def play():
     video_id = request.args.get('id')
@@ -8,17 +33,17 @@ def play():
         'format': 'bestaudio/best',
         'quiet': True,
         'no_warnings': True,
-        'source_address': '0.0.0.0', # IPv6 çakışmalarını önlemek için
+        'source_address': '0.0.0.0',
         'force_generic_extractor': False,
     }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Video linkini YouTube üzerinden alıyoruz
             info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
-            # En temiz ses linkini seçiyoruz
             url = info.get('url')
             return jsonify({"url": url})
     except Exception as e:
-        print(f"Hata oluştu: {str(e)}")
-        return jsonify({"error": "Link alınamadı", "details": str(e)}), 500
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=10000)
