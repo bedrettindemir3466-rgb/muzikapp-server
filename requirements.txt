@@ -1,5 +1,4 @@
 flask
 flask-cors
-yt-dlp
-youtube-search
+requests
 gunicorn
