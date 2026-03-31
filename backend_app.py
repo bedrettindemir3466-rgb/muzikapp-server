@@ -3,6 +3,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from youtube_search import YoutubeSearch
 
+# BU SATIR KRİTİK: Flask uygulamasını tanımlıyoruz
 app = Flask(__name__)
 CORS(app)
 
@@ -12,16 +13,19 @@ def search():
     if not query:
         return jsonify([])
     
-    results = YoutubeSearch(query, max_results=8).to_dict()
-    formatted_results = []
-    for res in results:
-        formatted_results.append({
-            "id": res['id'],
-            "title": res['title'],
-            "thumbnail": res['thumbnails'][0],
-            "duration": res['duration']
-        })
-    return jsonify(formatted_results)
+    try:
+        results = YoutubeSearch(query, max_results=8).to_dict()
+        formatted_results = []
+        for res in results:
+            formatted_results.append({
+                "id": res['id'],
+                "title": res['title'],
+                "thumbnail": res['thumbnails'][0],
+                "duration": res['duration']
+            })
+        return jsonify(formatted_results)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/play', methods=['GET'])
 def play():
@@ -46,4 +50,5 @@ def play():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
+    # Render portu için 10000 varsayılanını kullanırız
     app.run(host='0.0.0.0', port=10000)
