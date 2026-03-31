@@ -1,6 +1,6 @@
 import requests
 import re
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify, Response, redirect
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -31,8 +31,8 @@ def search():
         data = r.json().get('collection', [])
         results = []
         for item in data:
-            # Proxy linki oluşturuyoruz
-            proxy_url = f"{request.host_url}proxy_audio/{item['id']}"
+            # ÖNEMLİ: Linki tam URL olarak oluşturuyoruz
+            proxy_url = f"{request.host_url.rstrip('/')}/proxy_audio/{item['id']}"
             results.append({
                 "id": str(item['id']),
                 "title": item.get('title', 'Bilinmeyen'),
@@ -47,18 +47,21 @@ def search():
 @app.route('/proxy_audio/<track_id>')
 def proxy_audio(track_id):
     cid = get_working_client_id()
-    # 1. Önce SoundCloud'dan gerçek yayın linkini al
-    stream_info_url = f"https://api.soundcloud.com/tracks/{track_id}/stream?client_id={cid}"
-    
-    # 2. Dosyayı SoundCloud'dan çekip kullanıcıya ilet (403'ü aşar)
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    r = requests.get(stream_info_url, headers=headers, stream=True, allow_redirects=True)
-    
-    def generate():
-        for chunk in r.iter_content(chunk_size=1024):
-            yield chunk
+    try:
+        # 1. Önce asıl stream URL'ini alıyoruz
+        stream_api_url = f"https://api.soundcloud.com/tracks/{track_id}/stream?client_id={cid}"
+        
+        # 2. SoundCloud bizi asıl dosyaya yönlendirecek, o linki takip et (stream=True)
+        r = requests.get(stream_api_url, stream=True, allow_redirects=True, headers={'User-Agent': 'Mozilla/5.0'})
+        
+        # 3. Dosyayı parçalar halinde kullanıcıya akıt (Proxy)
+        return Response(r.iter_content(chunk_size=1024*1024), content_type=r.headers.get('Content-Type', 'audio/mpeg'))
+    except Exception as e:
+        return str(e), 500
 
-    return Response(generate(), content_type='audio/mpeg')
+@app.route('/')
+def home():
+    return "Muzik App Sunucusu Aktif!"
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
