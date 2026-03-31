@@ -1,41 +1,54 @@
-import requests
+import yt_dlp
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from youtube_search import YoutubeSearch
 
 app = Flask(__name__)
 CORS(app)
 
-@app.route('/search', methods=['GET'])
-def search():
-    query = request.args.get('q')
-    if not query: return jsonify([])
+@app.route('/play', methods=['GET'])
+def play():
+    video_id = request.args.get('id')
+    if not video_id:
+        return jsonify({"error": "ID eksik"}), 400
+
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'quiet': True,
+        'no_warnings': True,
+        'nocheckcertificate': True,
+        # YouTube'un veri merkezi engellerini aşmak için en kritik ayar:
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios'],
+                'skip': ['dash', 'hls']
+            }
+        },
+        'http_headers': {
+            'User-Agent': 'com.google.android.youtube/19.10.35 (Linux; U; Android 11) gzip',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
+    }
+
     try:
-        # YouTube yerine daha stabil bir arama motoru API'si kullanıyoruz
-        search_url = f"https://api.deezer.com/search?q={query}&limit=10"
-        response = requests.get(search_url, timeout=5)
-        data = response.json().get('data', [])
-        
-        results = []
-        for item in data:
-            results.append({
-                "id": str(item['id']),
-                "title": f"{item['title']} - {item['artist']['name']}",
-                "thumbnail": item['album']['cover_medium'],
-                "duration": f"{item['duration'] // 60}:{item['duration'] % 60:02d}",
-                "preview": item['preview'] # Doğrudan çalınabilir link
-            })
-        return jsonify(results)
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+            url = info.get('url')
+            if url:
+                return jsonify({"url": url}) # Bu artık şarkının tam sürümüdür
+            return jsonify({"error": "Link alınamadı"}), 404
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/play', methods=['GET'])
-def play():
-    # Deezer verilerinde link zaten 'preview' içinde geliyor.
-    # Bu route'u sadece frontend'deki mevcut yapın bozulmasın diye tutuyoruz.
-    preview_url = request.args.get('url') # Frontend'den gelen preview url'i
-    if preview_url:
-        return jsonify({"url": preview_url})
-    return jsonify({"error": "Link bulunamadı"}), 404
+@app.route('/search', methods=['GET'])
+def search():
+    query = request.args.get('q')
+    try:
+        results = YoutubeSearch(query, max_results=10).to_dict()
+        return jsonify(results)
+    except:
+        return jsonify([])
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
