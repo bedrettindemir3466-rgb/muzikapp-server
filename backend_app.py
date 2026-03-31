@@ -6,39 +6,36 @@ import os
 app = Flask(__name__)
 CORS(app)
 
+# SoundCloud API Ayarları
 SOUNDCLOUD_API = "https://api-v2.soundcloud.com"
-# En güncel ve çalışan Client ID
-CLIENT_ID = "a3e059563d7fd3897001cceb82e5f6dc"
+CLIENT_ID = "a3e059563d7fd3897001cceb82e5f6dc" # En güncel ID
 
 @app.route('/search', methods=['GET'])
 def search():
     query = request.args.get('q', '')
     if not query:
-        return jsonify([]) # App.js hata almasın diye boş liste döndür
+        return jsonify([])
     
     try:
-        url = f"{SOUNDCLOUD_API}/search/tracks"
-        params = {
-            'q': query,
-            'limit': 15,
-            'client_id': CLIENT_ID
-        }
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, params=params, headers=headers, timeout=10)
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        params = {'q': query, 'limit': 15, 'client_id': CLIENT_ID}
+        
+        response = requests.get(f"{SOUNDCLOUD_API}/search/tracks", params=params, headers=headers, timeout=10)
         data = response.json()
         
-        songs = []
+        results = []
         if 'collection' in data:
             for track in data['collection']:
-                songs.append({
+                results.append({
                     'id': track.get('id'),
                     'title': track.get('title'),
-                    'thumbnail': (track.get('artwork_url') or "").replace('-large.jpg', '-t500x500.jpg'),
-                    'duration': f"{track.get('duration', 0) // 60000}:{(track.get('duration', 0) // 1000) % 60:02d}",
-                    'artist': track.get('user', {}).get('username', 'Bilinmeyen')
+                    'artist': track.get('user', {}).get('username', 'Bilinmeyen Sanatçı'),
+                    'thumbnail': (track.get('artwork_url') or "").replace('-large.jpg', '-t500x500.jpg') or "https://via.placeholder.com/150",
+                    'duration': f"{track.get('duration', 0) // 60000}:{(track.get('duration', 0) // 1000) % 60:02d}"
                 })
-        return jsonify(songs) # Direkt listeyi gönderiyoruz, App.js bunu bekliyor
+        return jsonify(results) # Direkt liste döndürüyoruz
     except Exception as e:
+        print(f"Hata: {e}")
         return jsonify([])
 
 @app.route('/play', methods=['GET'])
@@ -46,22 +43,23 @@ def play():
     track_id = request.args.get('id')
     if not track_id: return jsonify({"error": "ID yok"}), 400
     try:
-        url = f"{SOUNDCLOUD_API}/tracks/{track_id}"
         params = {'client_id': CLIENT_ID}
-        response = requests.get(url, params=params, timeout=10).json()
+        track_url = f"{SOUNDCLOUD_API}/tracks/{track_id}"
+        response = requests.get(track_url, params=params, timeout=10).json()
         
-        # Oynatılabilir URL'yi bul
-        for transcode in response.get('media', {}).get('transcodings', []):
-            if 'progressive' in transcode.get('format', {}).get('protocol', ''):
-                stream_url = requests.get(transcode['url'], params=params).json()['url']
-                return jsonify({'url': stream_url})
+        # Oynatılabilir stream linkini bulma
+        for trans in response.get('media', {}).get('transcodings', []):
+            if 'progressive' in trans.get('format', {}).get('protocol', ''):
+                stream_data = requests.get(trans['url'], params=params).json()
+                return jsonify({'url': stream_data.get('url')})
         
-        # Eğer progressive yoksa HLS döndür
+        # Fallback (HLS)
         hls_url = response['media']['transcodings'][0]['url']
-        stream_url = requests.get(hls_url, params=params).json()['url']
-        return jsonify({'url': stream_url})
+        stream_data = requests.get(hls_url, params=params).json()
+        return jsonify({'url': stream_data.get('url')})
     except:
-        return jsonify({"error": "Link alınamadı"}), 500
+        return jsonify({"error": "Çalma linki bulunamadı"}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
