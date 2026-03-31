@@ -6,60 +6,77 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# SoundCloud'un en stabil Client ID'lerinden biri (Yedek olarak tutuyoruz)
+# SoundCloud yedek anahtarı
 FALLBACK_ID = "iZVscCksmSeUvS7Z6Y0mJJU8XN3mY28I"
 
 def get_working_client_id():
-    """Dinamik olarak çalışan bir ID bulmaya çalışır."""
-    headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'}
+    """Dinamik ID bulma - Daha fazla tarayıcı taklidi ile."""
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+    }
     try:
-        # SoundCloud'un ana sayfasından güncel scriptleri çek
-        res = requests.get("https://soundcloud.com", headers=headers, timeout=5)
+        # Ana sayfaya git
+        res = requests.get("https://soundcloud.com", headers=headers, timeout=7)
+        # JS dosyalarını bul
         scripts = re.findall(r'src="(https://a-v2.sndcdn.com/assets/[^"]+\.js)"', res.text)
-        for url in reversed(scripts):
-            js = requests.get(url, headers=headers, timeout=5).text
-            match = re.search(r'client_id[:=]\s*"([a-zA-Z0-9]{32})"', js)
-            if match: return match.group(1)
-    except: pass
+        
+        # En güncel 3 script dosyasını tara
+        for url in reversed(scripts[:10]):
+            try:
+                js_content = requests.get(url, headers=headers, timeout=5).text
+                match = re.search(r'client_id[:=]\s*"([a-zA-Z0-9]{32})"', js_content)
+                if match:
+                    return match.group(1)
+            except:
+                continue
+    except Exception as e:
+        print(f"ID çekme hatası: {e}")
     return FALLBACK_ID
 
 @app.route('/search', methods=['GET'])
 def search():
     query = request.args.get('q')
-    if not query: return jsonify([])
+    if not query:
+        return jsonify([])
     
-    client_id = get_working_client_id()
+    cid = get_working_client_id()
     try:
-        # Arama API'sini mobil cihaz gibi çağırıyoruz (Daha az engel)
-        search_url = f"https://api-v2.soundcloud.com/search/tracks?q={query}&client_id={client_id}&limit=20"
+        # API v2 kullanarak arama
+        url = f"https://api-v2.soundcloud.com/search/tracks?q={query}&client_id={cid}&limit=15"
         headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(search_url, headers=headers, timeout=10)
+        r = requests.get(url, headers=headers, timeout=10)
         
-        if response.status_code != 200:
-            # Eğer 401 hatası alırsak yedek ID ile bir kez daha dene
-            search_url = f"https://api-v2.soundcloud.com/search/tracks?q={query}&client_id={FALLBACK_ID}&limit=20"
-            response = requests.get(search_url, headers=headers, timeout=10)
+        # Eğer SoundCloud 401 verirse yedek ID ile son bir kez dene
+        if r.status_code != 200:
+            url = f"https://api-v2.soundcloud.com/search/tracks?q={query}&client_id={FALLBACK_ID}&limit=15"
+            r = requests.get(url, headers=headers, timeout=10)
 
-        data = response.json().get('collection', [])
+        data = r.json()
+        collection = data.get('collection', [])
+        
         results = []
-        for item in data:
+        for item in collection:
             results.append({
                 "id": str(item['id']),
                 "title": item.get('title', 'Bilinmeyen'),
-                "thumbnail": item.get('artwork_url') or item.get('user', {}).get('avatar_url'),
+                "thumbnail": item.get('artwork_url') or item.get('user', {}).get('avatar_url') or "https://via.placeholder.com/150",
                 "duration": f"{item.get('full_duration', 0) // 60000}:{(item.get('full_duration', 0) // 1000) % 60:02d}",
-                "url": f"{request.host_url}stream/{item['id']}" # Kendi sunucumuz üzerinden ses
+                "url": f"{request.host_url}stream/{item['id']}"
             })
         return jsonify(results)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        # Hatanın ne olduğunu JSON olarak döndür ki App.js çökmesin
+        return jsonify({"error": str(e), "details": "SoundCloud baglantisi kurulamadi"}), 500
 
 @app.route('/stream/<track_id>')
 def stream(track_id):
-    client_id = get_working_client_id()
-    # SoundCloud API üzerinden doğrudan MP3 yönlendirmesi
-    stream_url = f"https://api.soundcloud.com/tracks/{track_id}/stream?client_id={client_id}"
+    cid = get_working_client_id()
+    stream_url = f"https://api.soundcloud.com/tracks/{track_id}/stream?client_id={cid}"
     return redirect(stream_url)
+
+@app.route('/')
+def home():
+    return "Sunucu Calisiyor!"
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
