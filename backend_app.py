@@ -6,25 +6,14 @@ from youtube_search import YoutubeSearch
 app = Flask(__name__)
 CORS(app)
 
-# Güvenilir Invidious Sunucuları
+# Daha stabil ve hızlı Invidious sunucuları
 INVIDIOUS_INSTANCES = [
-    "https://inv.tux.pizza",
-    "https://invidious.nerdvpn.de",
-    "https://yewtu.be",
-    "https://invidious.no-logs.com"
+    "https://invidious.flokinet.to",
+    "https://inv.nand.one",
+    "https://invidious.vpsfree.cz",
+    "https://invidious.sethforprivacy.com",
+    "https://inv.riverside.rocks"
 ]
-
-@app.route('/search', methods=['GET'])
-def search():
-    query = request.args.get('q')
-    if not query:
-        return jsonify([])
-    try:
-        # Arama kısmında mevcut kütüphaneyi kullanmaya devam edebiliriz
-        results = YoutubeSearch(query, max_results=10).to_dict()
-        return jsonify(results)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 @app.route('/play', methods=['GET'])
 def play():
@@ -34,23 +23,34 @@ def play():
 
     for instance in INVIDIOUS_INSTANCES:
         try:
-            # Invidious API üzerinden video detaylarını sorgula
+            print(f"Deneniyor: {instance}") # Loglarda hangi sunucunun denendiğini görürsün
             api_url = f"{instance}/api/v1/videos/{video_id}"
-            response = requests.get(api_url, timeout=5)
+            response = requests.get(api_url, timeout=4) # Timeout süresini 4 saniye yaptık
             
             if response.status_code == 200:
                 data = response.json()
-                # Sadece ses (audio) olan formatları filtrele
-                audio_formats = [f for f in data.get('adaptiveFormats', []) if 'audio/' in f.get('type', '')]
+                # adaptiveFormats içindeki ses dosyalarını al
+                audio_streams = [s for s in data.get('adaptiveFormats', []) if 'audio/' in s.get('type', '')]
                 
-                if audio_formats:
-                    # En yüksek bit değerine sahip olanı (genellikle listenin sonu) seç
-                    return jsonify({"url": audio_formats[-1]['url']})
+                if audio_streams:
+                    # En sonuncu (genellikle en yüksek kaliteli) stream'i döndür
+                    return jsonify({"url": audio_streams[-1]['url']})
         except Exception as e:
-            print(f"{instance} sunucusu hata verdi, diğeri deneniyor...")
+            print(f"{instance} hatası: {str(e)}")
             continue
 
-    return jsonify({"error": "Müzik linki hiçbir sunucudan alınamadı."}), 404
+    return jsonify({"error": "Müzik linki bulunamadı. Lütfen tekrar deneyin."}), 404
+
+@app.route('/search', methods=['GET'])
+def search():
+    query = request.args.get('q')
+    if not query:
+        return jsonify([])
+    try:
+        results = YoutubeSearch(query, max_results=10).to_dict()
+        return jsonify(results)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
